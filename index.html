@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Lewes Speaking Clock</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 2rem;
+    }
+
+    button {
+      padding: 0.6rem 1.2rem;
+      font-size: 1rem;
+    }
+
+    #status {
+      margin-top: 1rem;
+      font-size: 0.95rem;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>Lewes Speaking Clock</h1>
+  <p>
+    This page will announce the time in Lewes and play three tones,
+    with the third tone exactly on the announced second.
+  </p>
+  <p>
+    Please wait for a time, while files load, and the moment
+    for the first announcement comes around.
+  </p>
+  <button id="startButton">Start speaking clock</button>
+  <div id="status">Status: waiting to start.</div>
+
+  <script>
+    // =============================
+    // CONFIGURATION
+    // =============================
+
+    const AUDIO_BASE_PATH = 'audio/';
+
+    // Lead-in before the FIRST tone (fixed preference):
+    // Speech starts this many seconds BEFORE the first tone at T-2.
+    const LEAD_IN_BEFORE_FIRST_TONE = 7.5; // seconds
+
+    // Gaps between speech clips (in seconds) - adjust to taste.
+    const configGaps = {
+      gapIntroHour: 0.05, // intro -> hour
+      gapHourMinute: 0.03, // hour -> minute
+      gapMinuteSeconds: 0.02  // minute -> seconds phrase
+    };
+
+    // Tone frequencies for T-2, T-1, T (E4, G4, C5).
+    const TONE_FREQUENCIES = [329.63, 392.00, 523.25];
+
+    // Tone duration (seconds).
+    const TONE_DURATION = 0.20;
+
+    // How many seconds in advance to schedule the next announcement's intro.
+    // (The code will schedule everything well ahead of actual playback.)
+    const SCHEDULE_AHEAD_SECONDS = 5;
+
+
+    // =============================
+    // AUDIO CONTEXT AND LOADING
+    // =============================
+
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    let audioCtx;
+    let startWallMs;
+    let startAudioTime;
+
+    const clips = {
+      intro: null,
+      hours: [],
+      minutes: [],
+      seconds: {}
+    };
+
+    const statusEl = document.getElementById('status');
+    const startButton = document.getElementById('startButton');
+
+    function logStatus(message) {
+      console.log(message);
+      statusEl.textContent = 'Status: ' + message;
+    }
+
+    async function loadAudioBuffer(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error('Failed to load ' + url + ': ' + response.status);
+      }
+      const arrayBuffer = await response.arrayBuffer();
+      return await audioCtx.decodeAudioData(arrayBuffer);
+    }
+
+    async function loadAllClips() {
+      logStatus('Loading audio clips...');
+
+      // Intro
+      clips.intro = await loadAudioBuffer(AUDIO_BASE_PATH + 'intro.mp3');
+
+      // Hours: hours_nn.mp3, where nn = 12, 01..11
+      // We will map 0..23 hours to these files:
+      // 00 -> 12, 01 -> 01,..., 11 -> 11, 12 -> 12, 13 -> 01,..., 23 -> 11.
+      // So we still load the 12 base files.
+      const hourNames = ['12', '01', '02', '03', '04', '05', '06',
+        '07', '08', '09', '10', '11'];
+      const loadedHourBuffers = {};
+      for (const name of hourNames) {
+        const url = AUDIO_BASE_PATH + 'hour_' + name + '.mp3';
+        loadedHourBuffers[name] = await loadAudioBuffer(url);
+      }
+      // We'll later map system hour (0..23) to one of these.
+
+      // Minutes: minutes_nn.mp3, nn = 00..59
+      for (let m = 0; m < 60; m++) {
+        const mm = m.toString().padStart(2, '0');
+        const url = AUDIO_BASE_PATH + 'minutes_' + mm + '.mp3';
+        clips.minutes[m] = await loadAudioBuffer(url);
+      }
+
+      // Seconds: seconds_nn.mp3 for nn = 00, 10, 20, 30, 40, 50
+      const secondsValues = [0, 10, 20, 30, 40, 50];
+      for (const s of secondsValues) {
+        const ss = s.toString().padStart(2, '0');
+        const url = AUDIO_BASE_PATH + 'seconds_' + ss + '.mp3';
+        clips.seconds[s] = await loadAudioBuffer(url);
+      }
+
+      // Convert loadedHourBuffers into direct 24h mapping for convenience:
+      // 0->12, 1->01,..., 11->11, 12->12, 13->01,...
+      clips.hours = [];
+      for (let h = 0; h < 24; h++) {
+        let name;
+        const hourMod12 = h % 12;
+        if (hourMod12 === 0) {
+          name = '12';
+        } else {
+          name = hourMod12.toString().padStart(2, '0');
+        }
+        clips.hours[h] = loadedHourBuffers[name];
+      }
+
+      logStatus('All audio clips loaded.');
+    }
+
+
+    // =============================
+    // TIME MAPPING: WALL -> AUDIO
+    // =============================
+
+    function initTimeMapping() {
+      startWallMs = Date.now();
+      startAudioTime = audioCtx.currentTime;
+    }
+
+    function wallToAudioTime(targetWallMs) {
+      const nowWallMs = Date.now();
+      const nowAudio = audioCtx.currentTime;
+
+      const elapsedWallSec = (nowWallMs - startWallMs) / 1000;
+      const expectedAudio = startAudioTime + elapsedWallSec;
+      const drift = nowAudio - expectedAudio;
+
+      const targetElapsedWallSec = (targetWallMs - startWallMs) / 1000;
+      const idealAudioTime = startAudioTime + targetElapsedWallSec;
+
+      return idealAudioTime + drift;
+    }
+
+
+    // =============================
+    // SCHEDULING HELPERS
+    // =============================
+
+    function scheduleBufferAtTime(buffer, whenAudio) {
+      const now = audioCtx.currentTime;
+      if (whenAudio < now) {
+        console.warn(
+          'Buffer scheduled in the past by',
+          (now - whenAudio).toFixed(3),
+          'seconds; clamping to now.'
+        );
+      }
+      const safeWhen = Math.max(whenAudio, now);
+
+      const src = audioCtx.createBufferSource();
+      src.buffer = buffer;
+      src.connect(audioCtx.destination);
+      src.start(safeWhen);
+      return src;
+    }
+
+    function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
+      const now = audioCtx.currentTime;
+      if (audioTime < now) {
+        console.warn(
+          'Tone scheduled in the past by',
+          (now - audioTime).toFixed(3),
+          'seconds; clamping to now.'
+        );
+      }
+      const safeTime = Math.max(audioTime, now);
+
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.frequency.value = frequency;
+      osc.type = 'sine';
+
+      const attack = 0.01;
+      const release = 0.05;
+      const peak = 0.3;
+
+      gain.gain.setValueAtTime(0.0, safeTime);
+      gain.gain.linearRampToValueAtTime(peak, safeTime + attack);
+      gain.gain.setValueAtTime(peak, safeTime + duration - release);
+      gain.gain.linearRampToValueAtTime(0.0, safeTime + duration);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start(safeTime);
+      osc.stop(safeTime + duration);
+    }
+
+    // =============================
+    // SPEECH CHAIN SCHEDULING
+    // =============================
+
+    function scheduleSpeechForTime(targetDate, introStartAudioTime) {
+      const hours = targetDate.getHours();
+      const minutes = targetDate.getMinutes();
+      const seconds = targetDate.getSeconds();
+
+      const introBuf = clips.intro;
+      const hourBuf = clips.hours[hours];    // 0..23 mapped to 12,01..11
+      const minuteBuf = clips.minutes[minutes];
+      const secondsBuf = clips.seconds[seconds];
+
+      const dIntro = introBuf.duration;
+      const dHour = hourBuf.duration;
+      const dMinute = minuteBuf.duration;
+      const dSeconds = secondsBuf.duration;
+
+      const g1 = configGaps.gapIntroHour;
+      const g2 = configGaps.gapHourMinute;
+      const g3 = configGaps.gapMinuteSeconds;
+
+      const tIntro = introStartAudioTime;
+      const tHour = tIntro + dIntro + g1;
+      const tMinute = tHour + dHour + g2;
+      const tSeconds = tMinute + dMinute + g3;
+
+      scheduleBufferAtTime(introBuf, tIntro);
+      scheduleBufferAtTime(hourBuf, tHour);
+      scheduleBufferAtTime(minuteBuf, tMinute);
+      scheduleBufferAtTime(secondsBuf, tSeconds);
+
+      const speechEndAudioTime = tSeconds + dSeconds;
+      return speechEndAudioTime;
+    }
+
+
+    // =============================
+    // TONES SCHEDULING
+    // =============================
+
+    function scheduleThreeTonesAtT(targetDate) {
+      const T_ms = targetDate.getTime();
+      const relativeOffsetsSec = [-2, -1, 0]; // T-2, T-1, T
+
+      relativeOffsetsSec.forEach((offsetSec, index) => {
+        const toneWallMs = T_ms + offsetSec * 1000;
+        const audioTime = wallToAudioTime(toneWallMs);
+        const freq = TONE_FREQUENCIES[index]; // E4, G4, C5
+        scheduleToneAtTime(audioTime, freq, TONE_DURATION);
+      });
+    }
+
+
+    // =============================
+    // ANNOUNCEMENT TIMING LOGIC
+    // =============================
+
+    function getNextAnnouncementTimeFrom(now) {
+      // Announce the next multiple of 10 seconds from a given Date 'now'
+      const seconds = now.getSeconds();
+      const extra = 10 - (seconds % 10);
+      const target = new Date(now.getTime() + extra * 1000);
+      target.setMilliseconds(0);
+      return target;
+    }
+
+    // Convenience wrapper for "from current time"
+    function getNextAnnouncementTime() {
+      return getNextAnnouncementTimeFrom(new Date());
+    }
+
+
+    function scheduleAnnouncement(targetDate) {
+      const T_ms = targetDate.getTime();
+
+      // Speech start wall time S (relative to first tone at T-2)
+      const S_wallMs = T_ms - (LEAD_IN_BEFORE_FIRST_TONE + 2) * 1000;
+
+      const nowWall = Date.now();
+      const nowAudio = audioCtx.currentTime;
+
+      // If S has already passed by more than, say, 200ms, just give up on this T.
+      if (S_wallMs < nowWall - 200) {
+        console.warn(
+          'Speech start for', targetDate.toLocaleTimeString(),
+          'is already in the past; skipping this T.'
+        );
+        return; // Do NOT call scheduleNextCycle from here
+      }
+
+      const introStartAudioTime = wallToAudioTime(S_wallMs);
+
+      // If intro start in audio time is in the past, also give up
+      if (introStartAudioTime < nowAudio - 0.1) {
+        console.warn(
+          'Intro start audio time for', targetDate.toLocaleTimeString(),
+          'is already in the past by',
+          (nowAudio - introStartAudioTime).toFixed(3),
+          's; skipping this T.'
+        );
+        return;
+      }
+
+      logStatus(
+        'Scheduling announcement for ' + targetDate.toLocaleTimeString() +
+        ' (speech start at ' + new Date(S_wallMs).toLocaleTimeString() + ')'
+      );
+
+      scheduleSpeechForTime(targetDate, introStartAudioTime);
+      scheduleThreeTonesAtT(targetDate);
+    }
+
+
+    function scheduleNextCycle() {
+      const nowWall = Date.now();
+      let candidateNow = new Date(nowWall);
+
+      while (true) {
+        const targetDate = getNextAnnouncementTimeFrom(candidateNow);
+        const T_ms = targetDate.getTime();
+        const S_wallMs = T_ms - (LEAD_IN_BEFORE_FIRST_TONE + 2) * 1000;
+        const callTimeWallMs = S_wallMs - SCHEDULE_AHEAD_SECONDS * 1000;
+
+        if (callTimeWallMs <= nowWall) {
+          // We don't have enough lead time for this target; move 'candidateNow'
+          // forward slightly and try again.
+          candidateNow = new Date(T_ms + 1000); // 1 second after this T
+          continue;
+        }
+
+        const delayMs = callTimeWallMs - nowWall;
+
+        console.log(
+          'Next target:', targetDate.toLocaleTimeString(),
+          '| speech start:', new Date(S_wallMs).toLocaleTimeString(),
+          '| scheduling in', delayMs.toFixed(0), 'ms'
+        );
+
+        setTimeout(() => {
+          // When the timeout fires, schedule announcement for that target.
+          scheduleAnnouncement(targetDate);
+          // Immediately plan the following cycle.
+          scheduleNextCycle();
+        }, delayMs);
+
+        break; // Important: exit the while(true) loop
+      }
+    }
+
+    // =============================
+    // STARTUP LOGIC
+    // =============================
+
+    startButton.addEventListener('click', async () => {
+      try {
+        if (!audioCtx) {
+          audioCtx = new AudioContextClass();
+        }
+
+        // Resume the audio context on user gesture (required by many browsers).
+        await audioCtx.resume();
+
+        // Capture the initial relation between wall clock and audio clock.
+        initTimeMapping();
+
+        // Load all audio clips.
+        await loadAllClips();
+
+        logStatus('Starting speaking clock...');
+        startButton.disabled = true;
+        startButton.textContent = 'Speaking clock is running';
+
+        // Kick off the repeating schedule.
+        scheduleNextCycle();
+      } catch (err) {
+        console.error(err);
+        logStatus('Error: ' + err.message);
+      }
+    });
+  </script>
+</body>
+
+</html>
