@@ -2,24 +2,115 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lewes Speaking Clock</title>
-  <style>
+<style>
+  :root {
+    /* Base sizing */
+    font-size: 16px;
+    color-scheme: light dark;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 1.5rem;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f5;
+    color: #111;
+    display: flex;
+    min-height: 100vh;
+  }.container {
+    margin: auto;
+    max-width: 28rem; /* ~450px */
+    width: 100%;
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    background: #ffffff;
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.08);
+  }
+
+  h1 {
+    font-size: 1.6rem;
+    margin-top: 0;
+    margin-bottom: 0.75rem;
+  }
+
+  p {
+    margin-top: 0;
+    margin-bottom: 1rem;
+    line-height: 1.4;
+  }
+
+  button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border-radius: 999px;
+    border: none;
+    cursor: pointer;
+    background: #0066cc;
+    color: #fff;
+    transition: background 0.15s ease, transform 0.1s ease;
+    width: 100%;
+  }
+
+  button:hover:not(:disabled) {
+    background: #0050a3;
+    transform: translateY(-1px);
+  }
+
+  button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  #status {
+    margin-top: 0.75rem;
+    font-size: 0.9rem;
+    white-space: pre-line;
+    color: #333;
+  }
+
+  #nextAnnouncement {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    color: #555;
+  }
+
+  /* On very small devices, slightly reduce base font size */
+  @media (max-width: 360px) {
+    :root {
+      font-size: 15px;
+    }.container {
+      padding: 1.2rem;
+    }
+  }
+
+  /* Dark mode (optional, respects system setting) */
+  @media (prefers-color-scheme: dark) {
     body {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      margin: 2rem;
+      background: #111;
+      color: #eee;
+    }.container {
+      background: #1d1d1d;
+      box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.6);
     }
-    button {
-      padding: 0.6rem 1.2rem;
-      font-size: 1rem;
+    #status, #nextAnnouncement {
+      color: #ccc;
     }
-    #status {
-      margin-top: 1rem;
-      font-size: 0.95rem;
-      white-space: pre-line;
-    }
-  </style>
+  }
+</style>
 </head>
 <body>
+	<div class="container">
   <h1>Lewes Speaking Clock</h1>
   <p>
     This page will announce the time in Lewes and play three tones,
@@ -27,6 +118,7 @@
   </p>
   <button id="startButton">Start speaking clock</button>
   <div id="status">Status: waiting to start.</div>
+  <div id="nextAnnouncement"></div>
 
   <script>
     // =============================
@@ -42,9 +134,9 @@
 
     // Gaps between speech clips (in seconds)
     const configGaps = {
-      gapIntroHour:     0.10, // intro -> hour
-      gapHourMinute:    0.05, // hour -> minute
-      gapMinuteSeconds: 0.05  // minute -> seconds phrase
+      gapIntroHour:     0.05, // intro -> hour
+      gapHourMinute:    0.03, // hour -> minute
+      gapMinuteSeconds: 0.02  // minute -> seconds phrase
     };
 
     // Tone frequencies for T-2, T-1, T (E4, G4, C5)
@@ -55,6 +147,8 @@
 
     // *** NEW: server time endpoint ***
     const TIME_API_URL = 'time.php';
+
+    const nextAnnouncementEl = document.getElementById('nextAnnouncement');
 
 
     // =============================
@@ -431,6 +525,8 @@
           '| speech start:', new Date(S_wallMs).toLocaleTimeString(),
           '| scheduling in', delayMs.toFixed(0), 'ms'
         );
+	nextAnnouncementEl.textContent = 
+		      'Next announcement: ' + targetDate.toLocaleTimeString();
 
         setTimeout(() => {
           scheduleAnnouncement(targetDate);
