@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <title>Lewes Speaking Clock</title>
@@ -9,28 +8,22 @@
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 2rem;
     }
-
     button {
       padding: 0.6rem 1.2rem;
       font-size: 1rem;
     }
-
     #status {
       margin-top: 1rem;
       font-size: 0.95rem;
+      white-space: pre-line;
     }
   </style>
 </head>
-
 <body>
   <h1>Lewes Speaking Clock</h1>
   <p>
     This page will announce the time in Lewes and play three tones,
     with the third tone exactly on the announced second.
-  </p>
-  <p>
-    Please wait for a time, while files load, and the moment
-    for the first announcement comes around.
   </p>
   <button id="startButton">Start speaking clock</button>
   <div id="status">Status: waiting to start.</div>
@@ -44,24 +37,24 @@
 
     // Lead-in before the FIRST tone (fixed preference):
     // Speech starts this many seconds BEFORE the first tone at T-2.
-    const LEAD_IN_BEFORE_FIRST_TONE = 7.5; // seconds
+    // Adjust this to taste (smaller value -> speech starts later).
+    const LEAD_IN_BEFORE_FIRST_TONE = 7.5; // e.g. 7.5 seconds
 
-    // Gaps between speech clips (in seconds) - adjust to taste.
+    // Gaps between speech clips (in seconds)
     const configGaps = {
-      gapIntroHour: 0.05, // intro -> hour
-      gapHourMinute: 0.03, // hour -> minute
-      gapMinuteSeconds: 0.02  // minute -> seconds phrase
+      gapIntroHour:     0.10, // intro -> hour
+      gapHourMinute:    0.05, // hour -> minute
+      gapMinuteSeconds: 0.05  // minute -> seconds phrase
     };
 
-    // Tone frequencies for T-2, T-1, T (E4, G4, C5).
+    // Tone frequencies for T-2, T-1, T (E4, G4, C5)
     const TONE_FREQUENCIES = [329.63, 392.00, 523.25];
 
-    // Tone duration (seconds).
-    const TONE_DURATION = 0.20;
+    const TONE_DURATION = 0.20;          // seconds
+    const SCHEDULE_AHEAD_SECONDS = 5;    // schedule this many seconds before speech start
 
-    // How many seconds in advance to schedule the next announcement's intro.
-    // (The code will schedule everything well ahead of actual playback.)
-    const SCHEDULE_AHEAD_SECONDS = 5;
+    // *** NEW: server time endpoint ***
+    const TIME_API_URL = 'time.php';
 
 
     // =============================
@@ -103,18 +96,14 @@
       // Intro
       clips.intro = await loadAudioBuffer(AUDIO_BASE_PATH + 'intro.mp3');
 
-      // Hours: hours_nn.mp3, where nn = 12, 01..11
-      // We will map 0..23 hours to these files:
-      // 00 -> 12, 01 -> 01,..., 11 -> 11, 12 -> 12, 13 -> 01,..., 23 -> 11.
-      // So we still load the 12 base files.
+      // Hours: hour_nn.mp3, where nn = 12, 01..11
       const hourNames = ['12', '01', '02', '03', '04', '05', '06',
-        '07', '08', '09', '10', '11'];
+                         '07', '08', '09', '10', '11'];
       const loadedHourBuffers = {};
       for (const name of hourNames) {
         const url = AUDIO_BASE_PATH + 'hour_' + name + '.mp3';
         loadedHourBuffers[name] = await loadAudioBuffer(url);
       }
-      // We'll later map system hour (0..23) to one of these.
 
       // Minutes: minutes_nn.mp3, nn = 00..59
       for (let m = 0; m < 60; m++) {
@@ -131,8 +120,7 @@
         clips.seconds[s] = await loadAudioBuffer(url);
       }
 
-      // Convert loadedHourBuffers into direct 24h mapping for convenience:
-      // 0->12, 1->01,..., 11->11, 12->12, 13->01,...
+      // Map 24-hour clock to the 12 files
       clips.hours = [];
       for (let h = 0; h < 24; h++) {
         let name;
@@ -154,12 +142,12 @@
     // =============================
 
     function initTimeMapping() {
-      startWallMs = Date.now();
+      startWallMs = getTrustedNowMs();     // *** NOTE: use trusted time ***
       startAudioTime = audioCtx.currentTime;
     }
 
     function wallToAudioTime(targetWallMs) {
-      const nowWallMs = Date.now();
+      const nowWallMs = getTrustedNowMs(); // *** NOTE: use trusted time ***
       const nowAudio = audioCtx.currentTime;
 
       const elapsedWallSec = (nowWallMs - startWallMs) / 1000;
@@ -170,6 +158,85 @@
       const idealAudioTime = startAudioTime + targetElapsedWallSec;
 
       return idealAudioTime + drift;
+    }
+
+
+    // =============================
+    // SERVER TIME SYNC (NEW)
+    // =============================
+
+    let serverTimeOffsetMs = 0;     // serverTime ≈ clientTime + offset
+    let serverTimeOffsetValid = false;
+
+    function getTrustedNowMs() {
+      const localMs = Date.now();
+      if (!serverTimeOffsetValid) {
+        return localMs;
+      }
+      return localMs + serverTimeOffsetMs;
+    }
+
+    async function syncWithServerTimeOnce() {
+      const url = TIME_API_URL;
+
+      const t0 = performance.now();
+      const localBeforeMs = Date.now();
+
+      const response = await fetch(url, { cache: 'no-store' });
+      const data = await response.json();
+
+      const t1 = performance.now();
+      const localAfterMs = Date.now();
+
+      const serverUtcMs = data.utcMillis;
+
+      const rttMs = t1 - t0;
+      const oneWayDelayMs = rttMs / 2;
+      const clientMidMs = localBeforeMs + oneWayDelayMs;
+
+      const offset = serverUtcMs - clientMidMs;
+      serverTimeOffsetMs = offset;
+      serverTimeOffsetValid = true;
+
+      console.log(
+        'Server time sync: RTT ~', rttMs.toFixed(1),
+        'ms, offset ~', offset.toFixed(1), 'ms'
+      );
+    }
+
+    async function refineServerTimeOffset(attempts = 5) {
+      let best = null;
+
+      for (let i = 0; i < attempts; i++) {
+        const t0 = performance.now();
+        const localBeforeMs = Date.now();
+
+        const response = await fetch(TIME_API_URL, { cache: 'no-store' });
+        const data = await response.json();
+
+        const t1 = performance.now();
+        const localAfterMs = Date.now();
+
+        const serverUtcMs = data.utcMillis;
+        const rttMs = t1 - t0;
+        const oneWayDelayMs = rttMs / 2;
+        const clientMidMs = localBeforeMs + oneWayDelayMs;
+        const offset = serverUtcMs - clientMidMs;
+
+        if (!best || rttMs < best.rttMs) {
+          best = { rttMs, offset };
+        }
+      }
+
+      if (best) {
+        serverTimeOffsetMs = best.offset;
+        serverTimeOffsetValid = true;
+        console.log(
+          'Refined server time offset:',
+          'RTT ~', best.rttMs.toFixed(1), 'ms,',
+          'offset ~', best.offset.toFixed(1), 'ms'
+        );
+      }
     }
 
 
@@ -228,6 +295,7 @@
       osc.stop(safeTime + duration);
     }
 
+
     // =============================
     // SPEECH CHAIN SCHEDULING
     // =============================
@@ -237,28 +305,28 @@
       const minutes = targetDate.getMinutes();
       const seconds = targetDate.getSeconds();
 
-      const introBuf = clips.intro;
-      const hourBuf = clips.hours[hours];    // 0..23 mapped to 12,01..11
-      const minuteBuf = clips.minutes[minutes];
+      const introBuf   = clips.intro;
+      const hourBuf    = clips.hours[hours];
+      const minuteBuf  = clips.minutes[minutes];
       const secondsBuf = clips.seconds[seconds];
 
-      const dIntro = introBuf.duration;
-      const dHour = hourBuf.duration;
-      const dMinute = minuteBuf.duration;
+      const dIntro   = introBuf.duration;
+      const dHour    = hourBuf.duration;
+      const dMinute  = minuteBuf.duration;
       const dSeconds = secondsBuf.duration;
 
       const g1 = configGaps.gapIntroHour;
       const g2 = configGaps.gapHourMinute;
       const g3 = configGaps.gapMinuteSeconds;
 
-      const tIntro = introStartAudioTime;
-      const tHour = tIntro + dIntro + g1;
-      const tMinute = tHour + dHour + g2;
-      const tSeconds = tMinute + dMinute + g3;
+      const tIntro   = introStartAudioTime;
+      const tHour    = tIntro   + dIntro   + g1;
+      const tMinute  = tHour    + dHour    + g2;
+      const tSeconds = tMinute  + dMinute  + g3;
 
-      scheduleBufferAtTime(introBuf, tIntro);
-      scheduleBufferAtTime(hourBuf, tHour);
-      scheduleBufferAtTime(minuteBuf, tMinute);
+      scheduleBufferAtTime(introBuf,   tIntro);
+      scheduleBufferAtTime(hourBuf,    tHour);
+      scheduleBufferAtTime(minuteBuf,  tMinute);
       scheduleBufferAtTime(secondsBuf, tSeconds);
 
       const speechEndAudioTime = tSeconds + dSeconds;
@@ -277,7 +345,7 @@
       relativeOffsetsSec.forEach((offsetSec, index) => {
         const toneWallMs = T_ms + offsetSec * 1000;
         const audioTime = wallToAudioTime(toneWallMs);
-        const freq = TONE_FREQUENCIES[index]; // E4, G4, C5
+        const freq = TONE_FREQUENCIES[index];
         scheduleToneAtTime(audioTime, freq, TONE_DURATION);
       });
     }
@@ -288,7 +356,7 @@
     // =============================
 
     function getNextAnnouncementTimeFrom(now) {
-      // Announce the next multiple of 10 seconds from a given Date 'now'
+      // Next multiple of 10 seconds
       const seconds = now.getSeconds();
       const extra = 10 - (seconds % 10);
       const target = new Date(now.getTime() + extra * 1000);
@@ -296,33 +364,31 @@
       return target;
     }
 
-    // Convenience wrapper for "from current time"
     function getNextAnnouncementTime() {
-      return getNextAnnouncementTimeFrom(new Date());
+      const trustedNowMs = getTrustedNowMs();
+      const now = new Date(trustedNowMs);
+      return getNextAnnouncementTimeFrom(now);
     }
-
 
     function scheduleAnnouncement(targetDate) {
       const T_ms = targetDate.getTime();
 
-      // Speech start wall time S (relative to first tone at T-2)
+      // Speech start wall time S relative to first tone at T-2
       const S_wallMs = T_ms - (LEAD_IN_BEFORE_FIRST_TONE + 2) * 1000;
 
-      const nowWall = Date.now();
+      const nowWall = getTrustedNowMs();
       const nowAudio = audioCtx.currentTime;
 
-      // If S has already passed by more than, say, 200ms, just give up on this T.
       if (S_wallMs < nowWall - 200) {
         console.warn(
           'Speech start for', targetDate.toLocaleTimeString(),
           'is already in the past; skipping this T.'
         );
-        return; // Do NOT call scheduleNextCycle from here
+        return;
       }
 
       const introStartAudioTime = wallToAudioTime(S_wallMs);
 
-      // If intro start in audio time is in the past, also give up
       if (introStartAudioTime < nowAudio - 0.1) {
         console.warn(
           'Intro start audio time for', targetDate.toLocaleTimeString(),
@@ -342,9 +408,8 @@
       scheduleThreeTonesAtT(targetDate);
     }
 
-
     function scheduleNextCycle() {
-      const nowWall = Date.now();
+      const nowWall = getTrustedNowMs();
       let candidateNow = new Date(nowWall);
 
       while (true) {
@@ -354,9 +419,8 @@
         const callTimeWallMs = S_wallMs - SCHEDULE_AHEAD_SECONDS * 1000;
 
         if (callTimeWallMs <= nowWall) {
-          // We don't have enough lead time for this target; move 'candidateNow'
-          // forward slightly and try again.
-          candidateNow = new Date(T_ms + 1000); // 1 second after this T
+          // Not enough lead time; move candidateNow forward and try again
+          candidateNow = new Date(T_ms + 1000);
           continue;
         }
 
@@ -369,15 +433,15 @@
         );
 
         setTimeout(() => {
-          // When the timeout fires, schedule announcement for that target.
           scheduleAnnouncement(targetDate);
-          // Immediately plan the following cycle.
+          // Plan the following cycle
           scheduleNextCycle();
         }, delayMs);
 
-        break; // Important: exit the while(true) loop
+        break;
       }
     }
+
 
     // =============================
     // STARTUP LOGIC
@@ -389,20 +453,23 @@
           audioCtx = new AudioContextClass();
         }
 
-        // Resume the audio context on user gesture (required by many browsers).
         await audioCtx.resume();
 
-        // Capture the initial relation between wall clock and audio clock.
+        // *** NEW: sync with server time before starting ***
+        logStatus('Synchronising with server time...');
+        await refineServerTimeOffset(5);
+
+        // Capture initial mapping using trusted time
         initTimeMapping();
 
-        // Load all audio clips.
+        // Load audio
         await loadAllClips();
 
         logStatus('Starting speaking clock...');
         startButton.disabled = true;
         startButton.textContent = 'Speaking clock is running';
 
-        // Kick off the repeating schedule.
+        // Kick off scheduling
         scheduleNextCycle();
       } catch (err) {
         console.error(err);
@@ -411,5 +478,4 @@
     });
   </script>
 </body>
-
 </html>
