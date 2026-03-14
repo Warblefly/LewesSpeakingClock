@@ -543,35 +543,44 @@
     // STARTUP LOGIC
     // =============================
 
+
     startButton.addEventListener('click', async () => {
-      try {
-        if (!audioCtx) {
-          audioCtx = new AudioContextClass();
-        }
+  try {
+    // Immediately disable to prevent double start
+    startButton.disabled = true;
+    startButton.textContent = 'Starting...';
+    logStatus('Initialising speaking clock...');
 
-        await audioCtx.resume();
+    if (!audioCtx) {
+      audioCtx = new AudioContextClass();
+    }
 
-        // *** NEW: sync with server time before starting ***
-        logStatus('Synchronising with server time...');
-        await refineServerTimeOffset(5);
+    await audioCtx.resume();
 
-        // Capture initial mapping using trusted time
-        initTimeMapping();
+    // Sync with server time before starting
+    logStatus('Synchronising with server time...');
+    await refineServerTimeOffset(5);
 
-        // Load audio
-        await loadAllClips();
+    // Capture initial mapping using trusted time
+    initTimeMapping();
 
-        logStatus('Starting speaking clock...');
-        startButton.disabled = true;
-        startButton.textContent = 'Speaking clock is running';
+    // Load audio
+    logStatus('Loading audio clips...');
+    await loadAllClips();
 
-        // Kick off scheduling
-        scheduleNextCycle();
-      } catch (err) {
-        console.error(err);
-        logStatus('Error: ' + err.message);
-      }
-    });
+    logStatus('Starting speaking clock...');
+    startButton.textContent = 'Speaking clock is running';
+
+    // Kick off scheduling
+    scheduleNextCycle();
+  } catch (err) {
+    console.error(err);
+    logStatus('Error: ' + err.message);
+    // If something failed, allow the user to try again
+    startButton.disabled = false;
+    startButton.textContent = 'Start speaking clock';
+  }
+});
   </script>
 </body>
 </html>
