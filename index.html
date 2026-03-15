@@ -85,6 +85,12 @@
     color: #555;
   }
 
+  #countdown {
+    margin-top: 0.25rem;
+    font-size: 0.9rem;
+    color: #444;
+  }
+
   /* On very small devices, slightly reduce base font size */
   @media (max-width: 360px) {
     :root {
@@ -103,22 +109,24 @@
       background: #1d1d1d;
       box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.6);
     }
-    #status, #nextAnnouncement {
+    #status, #nextAnnouncement, #countdown {
       color: #ccc;
     }
   }
 </style>
 </head>
 <body>
-	<div class="container">
-  <h1>Lewes Speaking Clock</h1>
-  <p>
-    This page will announce the time in Lewes and play three tones,
-    with the third tone exactly on the announced second.
-  </p>
-  <button id="startButton">Start speaking clock</button>
-  <div id="status">Status: waiting to start.</div>
-  <div id="nextAnnouncement"></div>
+  <div class="container">
+    <h1>Lewes Speaking Clock</h1>
+    <p>
+      This page will announce the time in Lewes and play three tones,
+      with the third tone exactly on the announced second.
+    </p>
+    <button id="startButton">Start speaking clock</button>
+    <div id="status">Status: waiting for you to start the Speaking Clock.</div>
+    <div id="nextAnnouncement"></div>
+    <div id="countdown"></div>
+  </div>
 
   <script>
     // =============================
@@ -140,15 +148,13 @@
     };
 
     // Tone frequencies for T-2, T-1, T (E4, G4, C5)
-    const TONE_FREQUENCIES = [329.63, 392.00, 523.25];
+    const TONE_FREQUENCIES = [659.25, 783.99, 1046.50];
 
     const TONE_DURATION = 0.20;          // seconds
     const SCHEDULE_AHEAD_SECONDS = 5;    // schedule this many seconds before speech start
 
-    // *** NEW: server time endpoint ***
+    // Server time endpoint
     const TIME_API_URL = 'time.php';
-
-    const nextAnnouncementEl = document.getElementById('nextAnnouncement');
 
 
     // =============================
@@ -160,6 +166,12 @@
     let startWallMs;
     let startAudioTime;
 
+    // Track next announcement time for display / countdown
+    let nextTargetDate = null;      // announced time T (for display)
+    let nextSpeechStartMs = null;   // S (first intro start) in ms
+    let countdownTimerId = null;
+    let hasStartedFirstAnnouncement = false;
+
     const clips = {
       intro: null,
       hours: [],
@@ -169,6 +181,9 @@
 
     const statusEl = document.getElementById('status');
     const startButton = document.getElementById('startButton');
+    const nextAnnouncementEl = document.getElementById('nextAnnouncement');
+    const countdownEl = document.getElementById('countdown');
+
 
     function logStatus(message) {
       console.log(message);
@@ -232,16 +247,59 @@
 
 
     // =============================
+    // COUNTDOWN LOOP (FIRST ANNOUNCEMENT ONLY)
+    // =============================
+
+    function startCountdownLoop() {
+      if (countdownTimerId !== null) {
+        clearInterval(countdownTimerId);
+        countdownTimerId = null;
+      }
+
+      countdownTimerId = setInterval(() => {
+        // If we've already started the first announcement, stop and clear.
+        if (hasStartedFirstAnnouncement) {
+          clearInterval(countdownTimerId);
+          countdownTimerId = null;
+          countdownEl.textContent = '';
+          return;
+        }
+
+        if (nextSpeechStartMs === null) {
+          countdownEl.textContent = '';
+          return;
+        }
+
+        const nowMs = getTrustedNowMs();
+        const remainingMs = nextSpeechStartMs - nowMs;
+
+        if (remainingMs <= 0) {
+          // We have reached or passed the speech start time.
+          hasStartedFirstAnnouncement = true;
+          countdownEl.textContent = '';
+          clearInterval(countdownTimerId);
+          countdownTimerId = null;
+          return;
+        }
+
+        const seconds = remainingMs / 1000;
+        countdownEl.textContent =
+          'Time to announcement: ' + seconds.toFixed(1) + ' s';
+      }, 100);
+    }
+
+
+    // =============================
     // TIME MAPPING: WALL -> AUDIO
     // =============================
 
     function initTimeMapping() {
-      startWallMs = getTrustedNowMs();     // *** NOTE: use trusted time ***
+      startWallMs = getTrustedNowMs();     // use trusted time
       startAudioTime = audioCtx.currentTime;
     }
 
     function wallToAudioTime(targetWallMs) {
-      const nowWallMs = getTrustedNowMs(); // *** NOTE: use trusted time ***
+      const nowWallMs = getTrustedNowMs(); // use trusted time
       const nowAudio = audioCtx.currentTime;
 
       const elapsedWallSec = (nowWallMs - startWallMs) / 1000;
@@ -256,7 +314,7 @@
 
 
     // =============================
-    // SERVER TIME SYNC (NEW)
+    // SERVER TIME SYNC
     // =============================
 
     let serverTimeOffsetMs = 0;     // serverTime ≈ clientTime + offset
@@ -351,43 +409,51 @@
 
       const src = audioCtx.createBufferSource();
       src.buffer = buffer;
-      src.connect(audioCtx.destination);
+      src.connect(audioCtx.destination);  // FIXED
       src.start(safeWhen);
       return src;
     }
 
-    function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
-      const now = audioCtx.currentTime;
-      if (audioTime < now) {
-        console.warn(
-          'Tone scheduled in the past by',
-          (now - audioTime).toFixed(3),
-          'seconds; clamping to now.'
-        );
-      }
-      const safeTime = Math.max(audioTime, now);
 
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
+function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
+  const now = audioCtx.currentTime;
+  if (audioTime < now) {
+    console.warn(
+      'Tone scheduled in the past by',
+      (now - audioTime).toFixed(3),
+      'seconds; clamping to now.'
+    );
+  }
+  const safeTime = Math.max(audioTime, now);
 
-      osc.frequency.value = frequency;
-      osc.type = 'sine';
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
 
-      const attack = 0.01;
-      const release = 0.05;
-      const peak = 0.3;
+  osc.frequency.value = frequency;
+  osc.type = 'triangle'; // bright but not harsh; use 'sine' if you prefer
 
-      gain.gain.setValueAtTime(0.0, safeTime);
-      gain.gain.linearRampToValueAtTime(peak, safeTime + attack);
-      gain.gain.setValueAtTime(peak, safeTime + duration - release);
-      gain.gain.linearRampToValueAtTime(0.0, safeTime + duration);
+  // Longer, more assertive pip
+  const attack = 0.0001;                 // 0.1 ms attack
+  const sustain = duration * 0.2;      // flat-ish middle
+  const release = duration * 0.6;      // fade out
+  const peak = 0.8;                    // fairly loud (0..1)
 
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
+  // Attack to peak
+  gain.gain.setValueAtTime(0.0, safeTime);
+  gain.gain.linearRampToValueAtTime(peak, safeTime + attack);
 
-      osc.start(safeTime);
-      osc.stop(safeTime + duration);
-    }
+  // Sustain
+  gain.gain.setValueAtTime(peak, safeTime + sustain);
+
+  // Release to 0
+  gain.gain.linearRampToValueAtTime(0.0, safeTime + sustain + release);
+
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  osc.start(safeTime);
+  osc.stop(safeTime + sustain + release);
+}
 
 
     // =============================
@@ -520,17 +586,27 @@
 
         const delayMs = callTimeWallMs - nowWall;
 
+        // Store globally for display
+        nextTargetDate = targetDate;
+
+        // Only set up countdown for the very first announcement
+        if (!hasStartedFirstAnnouncement && nextSpeechStartMs === null) {
+          nextSpeechStartMs = S_wallMs;
+          startCountdownLoop();
+        }
+
+        // Update UI for next announcement (the time the beeps refer to)
+        nextAnnouncementEl.textContent =
+          'Next announcement: ' + targetDate.toLocaleTimeString();
+
         console.log(
           'Next target:', targetDate.toLocaleTimeString(),
           '| speech start:', new Date(S_wallMs).toLocaleTimeString(),
           '| scheduling in', delayMs.toFixed(0), 'ms'
         );
-	nextAnnouncementEl.textContent = 
-		      'Next announcement: ' + targetDate.toLocaleTimeString();
 
         setTimeout(() => {
           scheduleAnnouncement(targetDate);
-          // Plan the following cycle
           scheduleNextCycle();
         }, delayMs);
 
@@ -543,44 +619,43 @@
     // STARTUP LOGIC
     // =============================
 
-
     startButton.addEventListener('click', async () => {
-  try {
-    // Immediately disable to prevent double start
-    startButton.disabled = true;
-    startButton.textContent = 'Starting...';
-    logStatus('Initialising speaking clock...');
+      try {
+        // Immediately disable to prevent double start
+        startButton.disabled = true;
+        startButton.textContent = 'Starting...';
+        logStatus('Initialising speaking clock...');
 
-    if (!audioCtx) {
-      audioCtx = new AudioContextClass();
-    }
+        if (!audioCtx) {
+          audioCtx = new AudioContextClass();
+        }
 
-    await audioCtx.resume();
+        await audioCtx.resume();
 
-    // Sync with server time before starting
-    logStatus('Synchronising with server time...');
-    await refineServerTimeOffset(5);
+        // Sync with server time before starting
+        logStatus('Synchronising with server time...');
+        await refineServerTimeOffset(5);
 
-    // Capture initial mapping using trusted time
-    initTimeMapping();
+        // Capture initial mapping using trusted time
+        initTimeMapping();
 
-    // Load audio
-    logStatus('Loading audio clips...');
-    await loadAllClips();
+        // Load audio
+        logStatus('Loading audio clips...');
+        await loadAllClips();
 
-    logStatus('Starting speaking clock...');
-    startButton.textContent = 'Speaking clock is running';
+        logStatus('Starting speaking clock...');
+        startButton.textContent = 'Speaking clock is running';
 
-    // Kick off scheduling
-    scheduleNextCycle();
-  } catch (err) {
-    console.error(err);
-    logStatus('Error: ' + err.message);
-    // If something failed, allow the user to try again
-    startButton.disabled = false;
-    startButton.textContent = 'Start speaking clock';
-  }
-});
+        // Kick off scheduling
+        scheduleNextCycle();
+      } catch (err) {
+        console.error(err);
+        logStatus('Error: ' + err.message);
+        // If something failed, allow the user to try again
+        startButton.disabled = false;
+        startButton.textContent = 'Start speaking clock';
+      }
+    });
   </script>
 </body>
 </html>
