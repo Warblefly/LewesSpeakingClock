@@ -2,7 +2,7 @@
 
 You can enjoy (?) the demo at https://clock.johnwarburton.com/
 
-This is a talking clock in Javascript. It tells the time for my home town, Lewes. 
+This is a talking clock in Javascript. It tells the time for my home town, Lewes — which happens to sit on the Greenwich meridian.
 
 The mechanism involves sound files loaded into a web browser, then played back at the right time.
 
