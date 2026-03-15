@@ -1,4 +1,4 @@
-# LewesSpeakingClock
+# Lewes Speaking Clock
 
 You can enjoy (?) the demo at https://clock.johnwarburton.com/
 
