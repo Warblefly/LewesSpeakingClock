@@ -1,120 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Lewes Speaking Clock</title>
-<style>
-  :root {
-    /* Base sizing */
-    font-size: 16px;
-    color-scheme: light dark;
-  }
-
-  * {
-    box-sizing: border-box;
-  }
-
-  body {
-    margin: 0;
-    padding: 1.5rem;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: #f5f5f5;
-    color: #111;
-    display: flex;
-    min-height: 100vh;
-  }.container {
-    margin: auto;
-    max-width: 28rem; /* ~450px */
-    width: 100%;
-    padding: 1.5rem;
-    border-radius: 0.75rem;
-    background: #ffffff;
-    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.08);
-  }
-
-  h1 {
-    font-size: 1.6rem;
-    margin-top: 0;
-    margin-bottom: 0.75rem;
-  }
-
-  p {
-    margin-top: 0;
-    margin-bottom: 1rem;
-    line-height: 1.4;
-  }
-
-  button {
-    padding: 0.75rem 1.5rem;
-    font-size: 1rem;
-    font-weight: 600;
-    border-radius: 999px;
-    border: none;
-    cursor: pointer;
-    background: #0066cc;
-    color: #fff;
-    transition: background 0.15s ease, transform 0.1s ease;
-    width: 100%;
-  }
-
-  button:hover:not(:disabled) {
-    background: #0050a3;
-    transform: translateY(-1px);
-  }
-
-  button:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-
-  button:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  #status {
-    margin-top: 0.75rem;
-    font-size: 0.9rem;
-    white-space: pre-line;
-    color: #333;
-  }
-
-  #nextAnnouncement {
-    margin-top: 0.25rem;
-    font-size: 0.9rem;
-    color: #555;
-  }
-
-  #countdown {
-    margin-top: 0.25rem;
-    font-size: 0.9rem;
-    color: #444;
-  }
-
-  /* On very small devices, slightly reduce base font size */
-  @media (max-width: 360px) {
+  <style>
     :root {
-      font-size: 15px;
-    }.container {
-      padding: 1.2rem;
+      /* Base sizing */
+      font-size: 16px;
+      color-scheme: light dark;
     }
-  }
 
-  /* Dark mode (optional, respects system setting) */
-  @media (prefers-color-scheme: dark) {
+    * {
+      box-sizing: border-box;
+    }
+
     body {
-      background: #111;
-      color: #eee;
-    }.container {
-      background: #1d1d1d;
-      box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.6);
+      margin: 0;
+      padding: 1.5rem;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      color: #111;
+      display: flex;
+      min-height: 100vh;
     }
-    #status, #nextAnnouncement, #countdown {
-      color: #ccc;
+
+    .container {
+      margin: auto;
+      max-width: 28rem;
+      /* ~450px */
+      width: 100%;
+      padding: 1.5rem;
+      border-radius: 0.75rem;
+      background: #ffffff;
+      box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.08);
     }
-  }
-</style>
+
+    h1 {
+      font-size: 1.6rem;
+      margin-top: 0;
+      margin-bottom: 0.75rem;
+    }
+
+    p {
+      margin-top: 0;
+      margin-bottom: 1rem;
+      line-height: 1.4;
+    }
+
+    button {
+      padding: 0.75rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 600;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      background: #0066cc;
+      color: #fff;
+      transition: background 0.15s ease, transform 0.1s ease;
+      width: 100%;
+    }
+
+    button:hover:not(:disabled) {
+      background: #0050a3;
+      transform: translateY(-1px);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+    }
+
+    #status {
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+      white-space: pre-line;
+      color: #333;
+    }
+
+    #nextAnnouncement {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      color: #555;
+    }
+
+    #countdown {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      color: #444;
+    }
+
+    /* On very small devices, slightly reduce base font size */
+    @media (max-width: 360px) {
+      :root {
+        font-size: 15px;
+      }
+
+      .container {
+        padding: 1.2rem;
+      }
+    }
+
+    /* Dark mode (optional, respects system setting) */
+    @media (prefers-color-scheme: dark) {
+      body {
+        background: #111;
+        color: #eee;
+      }
+
+      .container {
+        background: #1d1d1d;
+        box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.6);
+      }
+
+      #status,
+      #nextAnnouncement,
+      #countdown {
+        color: #ccc;
+      }
+    }
+  </style>
 </head>
+
 <body>
   <div class="container">
     <h1>Lewes Speaking Clock</h1>
@@ -142,8 +154,8 @@
 
     // Gaps between speech clips (in seconds)
     const configGaps = {
-      gapIntroHour:     0.01, // intro -> hour
-      gapHourMinute:    0.01, // hour -> minute
+      gapIntroHour: 0.01, // intro -> hour
+      gapHourMinute: 0.01, // hour -> minute
       gapMinuteSeconds: 0.02  // minute -> seconds phrase
     };
 
@@ -207,7 +219,7 @@
 
       // Hours: hour_nn.mp3, where nn = 12, 01..11
       const hourNames = ['12', '01', '02', '03', '04', '05', '06',
-                         '07', '08', '09', '10', '11'];
+        '07', '08', '09', '10', '11'];
       const loadedHourBuffers = {};
       for (const name of hourNames) {
         const url = AUDIO_BASE_PATH + 'hour_' + name + '.mp3';
@@ -415,45 +427,45 @@
     }
 
 
-function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
-  const now = audioCtx.currentTime;
-  if (audioTime < now) {
-    console.warn(
-      'Tone scheduled in the past by',
-      (now - audioTime).toFixed(3),
-      'seconds; clamping to now.'
-    );
-  }
-  const safeTime = Math.max(audioTime, now);
+    function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
+      const now = audioCtx.currentTime;
+      if (audioTime < now) {
+        console.warn(
+          'Tone scheduled in the past by',
+          (now - audioTime).toFixed(3),
+          'seconds; clamping to now.'
+        );
+      }
+      const safeTime = Math.max(audioTime, now);
 
-  const osc = audioCtx.createOscillator();
-  const gain = audioCtx.createGain();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
 
-  osc.frequency.value = frequency;
-  osc.type = 'triangle'; // bright but not harsh; use 'sine' if you prefer
+      osc.frequency.value = frequency;
+      osc.type = 'triangle'; // bright but not harsh; use 'sine' if you prefer
 
-  // Longer, more assertive pip
-  const attack = 0.0001;                 // 0.1 ms attack
-  const sustain = duration * 0.2;      // flat-ish middle
-  const release = duration * 0.6;      // fade out
-  const peak = 0.8;                    // fairly loud (0..1)
+      // Longer, more assertive pip
+      const attack = 0.0001;                 // 0.1 ms attack
+      const sustain = duration * 0.2;      // flat-ish middle
+      const release = duration * 0.6;      // fade out
+      const peak = 0.8;                    // fairly loud (0..1)
 
-  // Attack to peak
-  gain.gain.setValueAtTime(0.0, safeTime);
-  gain.gain.linearRampToValueAtTime(peak, safeTime + attack);
+      // Attack to peak
+      gain.gain.setValueAtTime(0.0, safeTime);
+      gain.gain.linearRampToValueAtTime(peak, safeTime + attack);
 
-  // Sustain
-  gain.gain.setValueAtTime(peak, safeTime + sustain);
+      // Sustain
+      gain.gain.setValueAtTime(peak, safeTime + sustain);
 
-  // Release to 0
-  gain.gain.linearRampToValueAtTime(0.0, safeTime + sustain + release);
+      // Release to 0
+      gain.gain.linearRampToValueAtTime(0.0, safeTime + sustain + release);
 
-  osc.connect(gain);
-  gain.connect(audioCtx.destination);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
 
-  osc.start(safeTime);
-  osc.stop(safeTime + sustain + release);
-}
+      osc.start(safeTime);
+      osc.stop(safeTime + sustain + release);
+    }
 
 
     // =============================
@@ -465,28 +477,28 @@ function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
       const minutes = targetDate.getMinutes();
       const seconds = targetDate.getSeconds();
 
-      const introBuf   = clips.intro;
-      const hourBuf    = clips.hours[hours];
-      const minuteBuf  = clips.minutes[minutes];
+      const introBuf = clips.intro;
+      const hourBuf = clips.hours[hours];
+      const minuteBuf = clips.minutes[minutes];
       const secondsBuf = clips.seconds[seconds];
 
-      const dIntro   = introBuf.duration;
-      const dHour    = hourBuf.duration;
-      const dMinute  = minuteBuf.duration;
+      const dIntro = introBuf.duration;
+      const dHour = hourBuf.duration;
+      const dMinute = minuteBuf.duration;
       const dSeconds = secondsBuf.duration;
 
       const g1 = configGaps.gapIntroHour;
       const g2 = configGaps.gapHourMinute;
       const g3 = configGaps.gapMinuteSeconds;
 
-      const tIntro   = introStartAudioTime;
-      const tHour    = tIntro   + dIntro   + g1;
-      const tMinute  = tHour    + dHour    + g2;
-      const tSeconds = tMinute  + dMinute  + g3;
+      const tIntro = introStartAudioTime;
+      const tHour = tIntro + dIntro + g1;
+      const tMinute = tHour + dHour + g2;
+      const tSeconds = tMinute + dMinute + g3;
 
-      scheduleBufferAtTime(introBuf,   tIntro);
-      scheduleBufferAtTime(hourBuf,    tHour);
-      scheduleBufferAtTime(minuteBuf,  tMinute);
+      scheduleBufferAtTime(introBuf, tIntro);
+      scheduleBufferAtTime(hourBuf, tHour);
+      scheduleBufferAtTime(minuteBuf, tMinute);
       scheduleBufferAtTime(secondsBuf, tSeconds);
 
       const speechEndAudioTime = tSeconds + dSeconds;
@@ -658,4 +670,5 @@ function scheduleToneAtTime(audioTime, frequency, duration = TONE_DURATION) {
     });
   </script>
 </body>
+
 </html>
